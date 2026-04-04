@@ -1,0 +1,9 @@
+[submodule "flutter_app/frodo4"]
+	path = flutter_app/frodo4
+	url = https://github.com/cebix/frodo4.git
+	branch = main
+
+[submodule "flutter_app/third_party/SDL2"]
+	path = flutter_app/third_party/SDL2
+	url = https://github.com/libsdl-org/SDL.git
+	branch = SDL2

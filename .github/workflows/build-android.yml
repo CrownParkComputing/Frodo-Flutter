@@ -1,0 +1,98 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # ── Java & Android SDK ────────────────────────────────────────────────
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK 29
+        run: |
+          sdkmanager --install "ndk;29.0.14206865"
+          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/29.0.14206865" >> $GITHUB_ENV
+
+      # ── Flutter ───────────────────────────────────────────────────────────
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      # ── Rust ──────────────────────────────────────────────────────────────
+      - name: Set up Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Cache Rust build artefacts
+        uses: actions/cache@v4
+        with:
+          path: flutter_app/rust/frodo_bridge/target
+          key: ${{ runner.os }}-cargo-android-${{ hashFiles('flutter_app/rust/frodo_bridge/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-android-
+
+      # ── Build SDL2 for Android (arm64-v8a) ────────────────────────────────
+      - name: Build SDL2 for Android (arm64-v8a)
+        run: |
+          cmake \
+            -S flutter_app/third_party/SDL2 \
+            -B ${{ runner.temp }}/sdl2-android-build \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-21 \
+            -DANDROID_STL=c++_shared \
+            -DSDL_SHARED=ON \
+            -DSDL_STATIC=OFF \
+            -DSDL_TEST=OFF \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build ${{ runner.temp }}/sdl2-android-build --parallel
+
+          # Stage the .so where cargo-ndk / the Gradle task expects it
+          mkdir -p flutter_app/android/app/src/main/jniLibs/arm64-v8a
+          cp ${{ runner.temp }}/sdl2-android-build/libSDL2*.so \
+             flutter_app/android/app/src/main/jniLibs/arm64-v8a/libSDL2.so
+
+      # ── Flutter dependencies ───────────────────────────────────────────────
+      - name: flutter pub get
+        working-directory: flutter_app
+        run: flutter pub get
+
+      # ── Build APK ─────────────────────────────────────────────────────────
+      - name: Build release APK
+        working-directory: flutter_app
+        env:
+          SDL2_INCLUDE_DIR: ${{ github.workspace }}/flutter_app/third_party/SDL2/include
+        run: flutter build apk --release
+
+      # ── Upload artefact ───────────────────────────────────────────────────
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: frodo-app-android-release
+          path: flutter_app/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30

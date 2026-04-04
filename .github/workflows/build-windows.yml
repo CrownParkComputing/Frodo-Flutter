@@ -1,0 +1,70 @@
+name: Build Windows Desktop
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # ── Flutter ───────────────────────────────────────────────────────────
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      # ── Rust ──────────────────────────────────────────────────────────────
+      - name: Set up Rust (stable, MSVC)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust build artefacts
+        uses: actions/cache@v4
+        with:
+          path: flutter_app/rust/frodo_bridge/target
+          key: ${{ runner.os }}-cargo-windows-${{ hashFiles('flutter_app/rust/frodo_bridge/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-windows-
+
+      # ── Flutter dependencies ───────────────────────────────────────────────
+      - name: flutter pub get
+        working-directory: flutter_app
+        run: flutter pub get
+
+      # ── Enable Windows desktop ─────────────────────────────────────────────
+      - name: Enable Windows desktop target
+        run: flutter config --enable-windows-desktop
+        working-directory: flutter_app
+
+      # ── Build ─────────────────────────────────────────────────────────────
+      # CMake will compile SDL2 from the submodule source, then invoke cargo to
+      # build the Rust bridge (which also compiles the Frodo C++ core via cc).
+      - name: Build release (Windows)
+        working-directory: flutter_app
+        run: flutter build windows --release
+
+      # ── Package ───────────────────────────────────────────────────────────
+      - name: Zip release artefacts
+        shell: pwsh
+        run: |
+          $src = "flutter_app\build\windows\x64\runner\Release"
+          Compress-Archive -Path "$src\*" -DestinationPath frodo_app-windows-x64.zip
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: frodo-app-windows-x64
+          path: frodo_app-windows-x64.zip
+          retention-days: 30

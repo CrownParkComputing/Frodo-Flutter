@@ -17,7 +17,8 @@ fn main() {
         .join("..") // rust/
         .join(".."); // flutter_app/
 
-    let src = flutter_app.join("frodo_core");
+    // Frodo core lives in the cebix/frodo4 submodule under its src/ directory.
+    let src = flutter_app.join("frodo4").join("src");
     let sdl2_include = flutter_app.join("third_party").join("SDL2").join("include");
     let ffi_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("cpp");
 

@@ -1,0 +1,76 @@
+name: Build iOS (unsigned)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 90
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # ── Flutter ───────────────────────────────────────────────────────────
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      # ── Rust (iOS cross-compile targets) ──────────────────────────────────
+      - name: Set up Rust (stable, iOS targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,x86_64-apple-ios
+
+      - name: Cache Rust build artefacts
+        uses: actions/cache@v4
+        with:
+          path: flutter_app/rust/frodo_bridge/target
+          key: ${{ runner.os }}-cargo-ios-${{ hashFiles('flutter_app/rust/frodo_bridge/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-ios-
+
+      # ── SDL2 headers (needed by Rust cc crate at compile time) ────────────
+      - name: Install SDL2 (headers only via Homebrew)
+        run: brew install sdl2
+
+      # ── CocoaPods ─────────────────────────────────────────────────────────
+      - name: Set up CocoaPods
+        run: |
+          gem install cocoapods --no-document
+          pod --version
+
+      # ── Flutter dependencies ───────────────────────────────────────────────
+      - name: flutter pub get
+        working-directory: flutter_app
+        run: flutter pub get
+
+      # ── Build (unsigned, no provisioning required) ────────────────────────
+      - name: Build iOS (no-codesign)
+        working-directory: flutter_app
+        env:
+          # Point the cc crate to the Homebrew SDL2 headers; the submodule
+          # headers are also available as a fallback via the Rust build.rs.
+          SDL2_INCLUDE_DIR: ${{ github.workspace }}/flutter_app/third_party/SDL2/include
+        run: flutter build ios --release --no-codesign
+
+      # ── Package ───────────────────────────────────────────────────────────
+      - name: Zip Runner.app
+        run: |
+          cd flutter_app/build/ios/iphoneos
+          zip -r ${{ github.workspace }}/Runner.app.zip Runner.app
+
+      - name: Upload iOS build
+        uses: actions/upload-artifact@v4
+        with:
+          name: frodo-app-ios-unsigned
+          path: Runner.app.zip
+          retention-days: 30
