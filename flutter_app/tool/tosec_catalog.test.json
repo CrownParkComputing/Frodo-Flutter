@@ -1,0 +1,18 @@
+[
+  {
+    "name": "Adventure Set",
+    "category": "Adventure",
+    "urls": {
+      "D64": "https://archive.org/download/tosec-main/Commodore/C64/Games/Adventure/%5BD64%5D/Commodore%20C64%20-%20Games%20-%20Adventure%20-%20%5BD64%5D%20(TOSEC-v2025-02-16).zip",
+      "T64": "https://archive.org/download/tosec-main/Commodore/C64/Games/Adventure/%5BT64%5D/Commodore%20C64%20-%20Games%20-%20Adventure%20-%20%5BT64%5D%20(TOSEC-v2025-01-07).zip"
+    }
+  },
+  {
+    "name": "Arcade Set",
+    "category": "Arcade",
+    "urls": {
+      "D64": "https://archive.org/download/tosec-main/Commodore/C64/Games/Arcade/%5BD64%5D/Commodore%20C64%20-%20Games%20-%20Arcade%20-%20%5BD64%5D%20(TOSEC-v2025-02-16).zip",
+      "T64": "https://archive.org/download/tosec-main/Commodore/C64/Games/Arcade/%5BT64%5D/Commodore%20C64%20-%20Games%20-%20Arcade%20-%20%5BT64%5D%20(TOSEC-v2025-01-10).zip"
+    }
+  }
+]
