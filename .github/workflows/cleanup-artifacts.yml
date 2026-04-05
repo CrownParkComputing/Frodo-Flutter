@@ -17,10 +17,10 @@ jobs:
         with:
           script: |
             const cutoff = Date.now() - 5 * 24 * 60 * 60 * 1000;
-            let page = 1;
             let deleted = 0;
+            const maxPages = 100;
 
-            while (true) {
+            for (let page = 1; page <= maxPages; page++) {
               const { data } = await github.rest.actions.listArtifactsForRepo({
                 owner: context.repo.owner,
                 repo:  context.repo.repo,
@@ -42,8 +42,6 @@ jobs:
                   deleted++;
                 }
               }
-
-              page++;
             }
 
             console.log(`Total deleted: ${deleted}`);
