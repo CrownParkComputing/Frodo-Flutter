@@ -5,6 +5,7 @@
 #include "frodo_ffi.h"
 
 #include "C64.h"
+#include "CIA.h"
 #include "SID.h"
 #include "1541t64.h"
 #include "Cartridge.h"
@@ -440,7 +441,7 @@ int frodo_swap_drives(void)
 void frodo_queue_disk_autoload(void)
 {
     if (TheC64 && !ThePrefs.DrivePath[0].empty())
-        TheC64->QueueDiskAutoLoad();
+        TheC64->AutoStartOp();
 }
 
 void frodo_mount_tape(const char * path)
@@ -484,7 +485,11 @@ int frodo_tape_drive_state(void)
 
 void frodo_tape_set_speed(int multiplier)
 {
-    if (TheC64) TheC64->SetTapeSpeedMultiplier(multiplier);
+    if (!TheC64) return;
+    auto prefs = std::make_unique<Prefs>(ThePrefs);
+    prefs->LimitSpeed = (multiplier <= 1);
+    TheC64->NewPrefs(prefs.get());
+    ThePrefs = *prefs;
 }
 
 void frodo_insert_cartridge(const char * path)
@@ -492,30 +497,41 @@ void frodo_insert_cartridge(const char * path)
     if (TheC64 && path) TheC64->InsertCartridge(std::string(path));
 }
 
+static void inject_key(SDL_Scancode sc, bool key_up)
+{
+    SDL_Event e;
+    memset(&e, 0, sizeof(e));
+    e.type = key_up ? SDL_KEYUP : SDL_KEYDOWN;
+    e.key.state = key_up ? SDL_RELEASED : SDL_PRESSED;
+    e.key.keysym.scancode = sc;
+    e.key.keysym.sym = SDL_GetKeyFromScancode(sc);
+    SDL_PushEvent(&e);
+}
+
 void frodo_key_down(const char * name)
 {
     SDL_Scancode sc = sc_from_name(name);
-    if (sc != SDL_SCANCODE_UNKNOWN && TheC64)
-        TheC64->InjectKey(sc, false);
+    if (sc != SDL_SCANCODE_UNKNOWN)
+        inject_key(sc, false);
 }
 
 void frodo_key_up(const char * name)
 {
     SDL_Scancode sc = sc_from_name(name);
-    if (sc != SDL_SCANCODE_UNKNOWN && TheC64)
-        TheC64->InjectKey(sc, true);
+    if (sc != SDL_SCANCODE_UNKNOWN)
+        inject_key(sc, true);
 }
 
 void frodo_key_combo(const char * mod_name, const char * key_name)
 {
     SDL_Scancode mod = sc_from_name(mod_name);
     SDL_Scancode key = sc_from_name(key_name);
-    if (mod == SDL_SCANCODE_UNKNOWN || key == SDL_SCANCODE_UNKNOWN || !TheC64) return;
-    TheC64->InjectKey(mod, false);
+    if (mod == SDL_SCANCODE_UNKNOWN || key == SDL_SCANCODE_UNKNOWN) return;
+    inject_key(mod, false);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    TheC64->InjectKey(key, false);
-    TheC64->InjectKey(key, true);
-    TheC64->InjectKey(mod, true);
+    inject_key(key, false);
+    inject_key(key, true);
+    inject_key(mod, true);
 }
 
 void frodo_set_joystick_ports(int port1, int port2)
@@ -539,13 +555,59 @@ void frodo_toggle_joystick_swap(void)
 
 void frodo_joystick_set_override(int port, int bits)
 {
-    if (TheC64) TheC64->SetJoystickOverride(port, (uint8_t)bits);
+    if (!TheC64 || !TheC64->TheCIA1) return;
+    uint8_t val = (uint8_t)bits;
+    if (port == 1)
+        TheC64->TheCIA1->Joystick1 = val;
+    else if (port == 2)
+        TheC64->TheCIA1->Joystick2 = val;
 }
 
 void frodo_capture_frame(uint32_t * out_argb)
 {
     if (!ready() || !out_argb) return;
-    TheC64->TheDisplay->CopyARGB(out_argb);
+
+    // Pepto palette (default)
+    static const uint32_t palette_pepto[16] = {
+        0x000000, 0xffffff, 0x860119, 0x4cc1e3,
+        0x8817bd, 0x35ac0a, 0x2007c0, 0xcff22d,
+        0x883e00, 0x402a00, 0xcb5537, 0x343434,
+        0x686868, 0x8bff59, 0x6845ff, 0xa1a1a1
+    };
+    // Colodore palette
+    static const uint32_t palette_colodore[16] = {
+        0x000000, 0xffffff, 0x813338, 0x75cec8,
+        0x8e3c97, 0x56ac4d, 0x2e2c9b, 0xedf171,
+        0x8e5029, 0x553800, 0xc46c71, 0x4a4a4a,
+        0x7b7b7b, 0xa9ff9f, 0x706deb, 0xb2b2b2
+    };
+    // UI extra palette entries (indices 16-21)
+    static const uint32_t palette_ui[6] = {
+        0xd0d0d0, // fill_gray (16)
+        0xf0f0f0, // shine_gray (17)
+        0x404040, // shadow_gray (18)
+        0xf00000, // red (19)
+        0x300000, // dark_red (20)
+        0x00c000  // green (21)
+    };
+
+    const uint32_t * c64_pal = (ThePrefs.Palette == PALETTE_COLODORE)
+        ? palette_colodore : palette_pepto;
+
+    const uint8_t * src = TheC64->TheDisplay->BitmapBase();
+    const unsigned total = DISPLAY_X * DISPLAY_Y;
+    constexpr unsigned PALETTE_UI_END = 22; // indices 16-21 are UI overlay colors
+    for (unsigned i = 0; i < total; ++i) {
+        uint8_t idx = src[i];
+        uint32_t rgb;
+        if (idx < 16)
+            rgb = c64_pal[idx];
+        else if (idx < PALETTE_UI_END)
+            rgb = palette_ui[idx - 16];
+        else
+            rgb = 0;
+        out_argb[i] = 0xff000000u | rgb;
+    }
 }
 
 void frodo_pause_audio(void)
@@ -578,7 +640,7 @@ void frodo_start_current_media(void)
 void frodo_queue_tape_autoload(void)
 {
     if (TheC64 && !ThePrefs.TapePath.empty())
-        TheC64->QueueTapeAutoLoad();
+        TheC64->AutoStartOp();
 }
 
 } /* extern "C" */
