@@ -595,12 +595,13 @@ void frodo_capture_frame(uint32_t * out_argb)
 
     const uint8_t * src = TheC64->TheDisplay->BitmapBase();
     const unsigned total = DISPLAY_X * DISPLAY_Y;
+    constexpr unsigned PALETTE_UI_END = 22; // indices 16-21 are UI overlay colors
     for (unsigned i = 0; i < total; ++i) {
         uint8_t idx = src[i];
         uint32_t rgb;
         if (idx < 16)
             rgb = c64_pal[idx];
-        else if (idx < 22)
+        else if (idx < PALETTE_UI_END)
             rgb = palette_ui[idx - 16];
         else
             rgb = 0;
