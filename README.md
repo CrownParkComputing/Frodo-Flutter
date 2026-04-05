@@ -183,6 +183,22 @@ GitHub Actions workflows are defined in `.github/workflows/`:
 | `build-android.yml` | push to `main`, PR, manual | `app-release.apk` |
 | `build-windows.yml` | push to `main`, PR, manual | `frodo_app-windows-x64.zip` |
 | `build-ios.yml`     | push to `main`, PR, manual | `Runner.app.zip` (unsigned) |
+| `build-release.yml` | push tag `v*`, manual | versioned Android, Windows, and unsigned iOS release assets |
+
+To publish a versioned release build, either push a tag matching the Flutter app version:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Or run `build-release.yml` from the GitHub Actions UI and provide `1.0.0` or `v1.0.0` as the version input.
+
+That workflow creates a GitHub release and attaches:
+
+- `frodo-app-1.0.0-android-arm64.apk`
+- `frodo-app-1.0.0-windows-x64.zip`
+- `frodo-app-1.0.0-ios-unsigned.zip`
 
 ---
 
