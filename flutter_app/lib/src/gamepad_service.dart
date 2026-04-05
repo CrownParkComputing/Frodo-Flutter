@@ -36,7 +36,6 @@ const int _kcButtonThumbL = 106;
 const int _kcButtonThumbR = 107;
 const int _kcButtonStart = 108;
 const int _kcButtonSelect = 109;
-const int _kcButtonMode = 110;
 const int _kcButton1 = 188;
 const int _kcButton2 = 189;
 const int _kcButton3 = 190;
@@ -63,8 +62,8 @@ class GamepadDevice {
   /// 0 = unassigned, 1 = port 1, 2 = port 2
   final int port;
 
-  GamepadDevice copyWith({int? port}) =>
-      GamepadDevice(id: id, name: name, port: port ?? this.port);
+  GamepadDevice copyWith({int? port, String? name}) =>
+      GamepadDevice(id: id, name: name ?? this.name, port: port ?? this.port);
 
   @override
   String toString() => 'GamepadDevice($id, "$name", port=$port)';
@@ -97,10 +96,17 @@ class GamepadService {
   /// These take priority over analog motion events and won't be cleared by them.
   final Map<int, int> _digitalDirMask = {};
 
+  /// Global button → C64 key name mapping (e.g. _kcButtonStart → 'SPACE').
+  /// Buttons in this map trigger a keyboard key instead of a joystick action.
+  final Map<int, String> _buttonKeyMap = {};
+
   /// Notified whenever the device list changes.
   final _devicesController = StreamController<List<GamepadDevice>>.broadcast();
   Stream<List<GamepadDevice>> get devicesStream => _devicesController.stream;
   List<GamepadDevice> get devices => List.unmodifiable(_devices.values);
+
+  /// Read the current button→key mappings (keyCode → C64 key name).
+  Map<int, String> get buttonKeyMap => Map.unmodifiable(_buttonKeyMap);
 
   // ---- setup ---------------------------------------------------------------
 
@@ -118,6 +124,16 @@ class GamepadService {
 
   // ---- external API --------------------------------------------------------
 
+  /// Map [keyCode] (Android keycode) to a C64 key name string, or pass
+  /// [null] to clear an existing mapping.
+  void setButtonKeyMapping(int keyCode, String? keyName) {
+    if (keyName == null || keyName.isEmpty) {
+      _buttonKeyMap.remove(keyCode);
+    } else {
+      _buttonKeyMap[keyCode] = keyName;
+    }
+  }
+
   Future<void> refreshDevices() async {
     try {
       final raw = await _methodChannel.invokeListMethod<Map>('listGamepads');
@@ -127,11 +143,11 @@ class GamepadService {
       final updated = <int, GamepadDevice>{};
       for (final m in raw) {
         final id = (m['id'] as num).toInt();
-        final name = m['name'] as String? ?? 'Unknown';
+        final name = (m['name'] as String?)?.trim();
         final existing = _devices[id];
         updated[id] = GamepadDevice(
           id: id,
-          name: name,
+          name: (name != null && name.isNotEmpty) ? name : 'Gamepad',
           port: existing?.port ?? 0,
         );
       }
@@ -180,7 +196,7 @@ class GamepadService {
       final anyAssigned = _devices.values.any((d) => d.port != 0);
       _devices[deviceId] = GamepadDevice(
         id: deviceId,
-        name: 'Controller $deviceId',
+        name: 'Gamepad',
         port: anyAssigned ? 0 : 2,
       );
       _flush();
@@ -203,25 +219,28 @@ class GamepadService {
         final axisY = (raw['axisY'] as num?)?.toDouble() ?? 0.0;
         final hatX = (raw['hatX'] as num?)?.toDouble() ?? 0.0;
         final hatY = (raw['hatY'] as num?)?.toDouble() ?? 0.0;
-        // Only log non-zero motion to reduce spam
-        if (axisX.abs() > 0.1 ||
-            axisY.abs() > 0.1 ||
-            hatX.abs() > 0.1 ||
-            hatY.abs() > 0.1) {
-          print('[Gamepad] motion ax=$axisX ay=$axisY hx=$hatX hy=$hatY');
-        }
         _applyMotion(deviceId, axisX, axisY, hatX, hatY);
     }
   }
 
   void _applyKey(int deviceId, int keyCode, bool down) {
+    // Check for button→keyboard mapping first
+    final mappedKey = _buttonKeyMap[keyCode];
+    if (mappedKey != null) {
+      final bridge = FrodoBridge.instance;
+      if (bridge.isReady) {
+        if (down) {
+          bridge.keyDown(mappedKey);
+        } else {
+          bridge.keyUp(mappedKey);
+        }
+      }
+      return;
+    }
+
     int current = _deviceMask[deviceId] ?? 0xff;
     int digital = _digitalDirMask[deviceId] ?? 0;
     final bit = _keyCodeToBit(keyCode);
-
-    print(
-      '[Gamepad] key deviceId=$deviceId keyCode=$keyCode down=$down bit=0x${bit.toRadixString(16)}',
-    );
 
     if (bit == 0) return;
 
@@ -237,9 +256,6 @@ class GamepadService {
     }
     _deviceMask[deviceId] = current;
     _digitalDirMask[deviceId] = digital;
-    print(
-      '[Gamepad] after: mask=0x${current.toRadixString(16)} digital=0x${digital.toRadixString(16)}',
-    );
     _flush();
   }
 
@@ -287,7 +303,7 @@ class GamepadService {
         return _bitLeft;
       case _kcDpadRight:
         return _bitRight;
-      // Fire buttons - excluding START/SELECT/MODE which pause games
+      // Fire buttons - excluding START/SELECT/MODE which can be remapped to keys
       case _kcButtonA:
       case _kcButtonB:
       case _kcButtonC:
@@ -352,11 +368,6 @@ class GamepadService {
     }
     // If controller is on Port 2, no mirroring needed - Port 2 is the standard gaming port
 
-    if (mergedP1 != 0xff || mergedP2 != 0xff) {
-      print(
-        '[Gamepad] flush: P1=0x${mergedP1.toRadixString(16)} P2=0x${mergedP2.toRadixString(16)}',
-      );
-    }
     bridge.joystickSetOverride(0, mergedP1);
     bridge.joystickSetOverride(1, mergedP2);
   }
