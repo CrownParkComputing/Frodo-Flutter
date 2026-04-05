@@ -67,4 +67,4 @@ jobs:
         with:
           name: frodo-app-windows-x64
           path: frodo_app-windows-x64.zip
-          retention-days: 30
+          retention-days: 5

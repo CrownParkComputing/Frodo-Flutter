@@ -95,4 +95,4 @@ jobs:
         with:
           name: frodo-app-android-release
           path: flutter_app/build/app/outputs/flutter-apk/app-release.apk
-          retention-days: 30
+          retention-days: 5
