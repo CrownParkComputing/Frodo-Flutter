@@ -7,6 +7,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -87,7 +90,7 @@ jobs:
         working-directory: flutter_app
         env:
           SDL2_INCLUDE_DIR: ${{ github.workspace }}/flutter_app/third_party/SDL2/include
-        run: flutter build apk --release
+        run: flutter build apk --release --build-number=${{ github.run_number }}
 
       # ── Upload artefact ───────────────────────────────────────────────────
       - name: Upload APK
@@ -96,3 +99,22 @@ jobs:
           name: frodo-app-android-release
           path: flutter_app/build/app/outputs/flutter-apk/app-release.apk
           retention-days: 5
+
+      # ── Publish to rolling nightly release (push to main only) ────────────
+      - name: Rename APK for release
+        if: github.event_name == 'push'
+        run: |
+          cp flutter_app/build/app/outputs/flutter-apk/app-release.apk \
+            frodo-app-android-arm64.apk
+
+      - name: Publish to nightly release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Nightly Build
+          prerelease: true
+          make_latest: false
+          body: |
+            Automated build from commit ${{ github.sha }} on branch `${{ github.ref_name }}`.
+          files: frodo-app-android-arm64.apk

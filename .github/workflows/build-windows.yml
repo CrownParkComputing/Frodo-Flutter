@@ -7,6 +7,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -53,18 +56,31 @@ jobs:
       # build the Rust bridge (which also compiles the Frodo C++ core via cc).
       - name: Build release (Windows)
         working-directory: flutter_app
-        run: flutter build windows --release
+        run: flutter build windows --release --build-number=${{ github.run_number }}
 
       # ── Package ───────────────────────────────────────────────────────────
       - name: Zip release artefacts
         shell: pwsh
         run: |
           $src = "flutter_app\build\windows\x64\runner\Release"
-          Compress-Archive -Path "$src\*" -DestinationPath frodo_app-windows-x64.zip
+          Compress-Archive -Path "$src\*" -DestinationPath frodo-app-windows-x64.zip
 
       - name: Upload Windows build
         uses: actions/upload-artifact@v4
         with:
           name: frodo-app-windows-x64
-          path: frodo_app-windows-x64.zip
+          path: frodo-app-windows-x64.zip
           retention-days: 5
+
+      # ── Publish to rolling nightly release (push to main only) ────────────
+      - name: Publish to nightly release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Nightly Build
+          prerelease: true
+          make_latest: false
+          body: |
+            Automated build from commit ${{ github.sha }} on branch `${{ github.ref_name }}`.
+          files: frodo-app-windows-x64.zip

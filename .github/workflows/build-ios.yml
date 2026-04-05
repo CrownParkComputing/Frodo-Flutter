@@ -7,6 +7,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-latest
@@ -60,17 +63,30 @@ jobs:
           # Point the cc crate to the Homebrew SDL2 headers; the submodule
           # headers are also available as a fallback via the Rust build.rs.
           SDL2_INCLUDE_DIR: ${{ github.workspace }}/flutter_app/third_party/SDL2/include
-        run: flutter build ios --release --no-codesign
+        run: flutter build ios --release --no-codesign --build-number=${{ github.run_number }}
 
       # ── Package ───────────────────────────────────────────────────────────
       - name: Zip Runner.app
         run: |
           cd flutter_app/build/ios/iphoneos
-          zip -r ${{ github.workspace }}/Runner.app.zip Runner.app
+          zip -r ${{ github.workspace }}/frodo-app-ios-unsigned.zip Runner.app
 
       - name: Upload iOS build
         uses: actions/upload-artifact@v4
         with:
           name: frodo-app-ios-unsigned
-          path: Runner.app.zip
+          path: frodo-app-ios-unsigned.zip
           retention-days: 5
+
+      # ── Publish to rolling nightly release (push to main only) ────────────
+      - name: Publish to nightly release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Nightly Build
+          prerelease: true
+          make_latest: false
+          body: |
+            Automated build from commit ${{ github.sha }} on branch `${{ github.ref_name }}`.
+          files: frodo-app-ios-unsigned.zip
