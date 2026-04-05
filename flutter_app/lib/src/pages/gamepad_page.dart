@@ -7,6 +7,28 @@ import 'package:flutter/material.dart';
 
 import '../gamepad_service.dart';
 
+// Keycodes for buttons that can be remapped to keyboard keys
+const int _kcButtonStart = 108;
+const int _kcButtonSelect = 109;
+
+// Selectable C64 key names for button remapping
+const List<_KeyOption> _keyOptions = [
+  _KeyOption(label: 'None', keyName: null),
+  _KeyOption(label: 'Space', keyName: 'SPACE'),
+  _KeyOption(label: 'Return', keyName: 'RETURN'),
+  _KeyOption(label: 'F1', keyName: 'F1'),
+  _KeyOption(label: 'F3', keyName: 'F3'),
+  _KeyOption(label: 'F5', keyName: 'F5'),
+  _KeyOption(label: 'F7', keyName: 'F7'),
+  _KeyOption(label: 'Run/Stop', keyName: 'ESCAPE'),
+];
+
+class _KeyOption {
+  const _KeyOption({required this.label, required this.keyName});
+  final String label;
+  final String? keyName;
+}
+
 class GamepadPage extends StatefulWidget {
   const GamepadPage({super.key});
 
@@ -18,11 +40,13 @@ class _GamepadPageState extends State<GamepadPage> {
   final _service = GamepadService.instance;
   StreamSubscription<List<GamepadDevice>>? _sub;
   List<GamepadDevice> _devices = [];
+  Map<int, String> _buttonKeyMap = {};
 
   @override
   void initState() {
     super.initState();
     _devices = List.of(_service.devices);
+    _buttonKeyMap = Map.of(_service.buttonKeyMap);
     _sub = _service.devicesStream.listen((d) {
       if (mounted) setState(() => _devices = List.of(d));
     });
@@ -33,6 +57,11 @@ class _GamepadPageState extends State<GamepadPage> {
   void dispose() {
     _sub?.cancel();
     super.dispose();
+  }
+
+  void _setButtonKey(int keyCode, String? keyName) {
+    _service.setButtonKeyMapping(keyCode, keyName);
+    setState(() => _buttonKeyMap = Map.of(_service.buttonKeyMap));
   }
 
   @override
@@ -85,6 +114,12 @@ class _GamepadPageState extends State<GamepadPage> {
 
             const Divider(color: Colors.white12),
             const _MappingLegend(),
+            const SizedBox(height: 8),
+            const Divider(color: Colors.white12),
+            _ButtonKeyMappingSection(
+              buttonKeyMap: _buttonKeyMap,
+              onChanged: _setButtonKey,
+            ),
             const SizedBox(height: 8),
           ],
         ),
@@ -225,6 +260,92 @@ class _LegendChip extends StatelessWidget {
         Text(
           label,
           style: const TextStyle(color: Colors.white60, fontSize: 12),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Button → keyboard key mapping section
+// ---------------------------------------------------------------------------
+class _ButtonKeyMappingSection extends StatelessWidget {
+  const _ButtonKeyMappingSection({
+    required this.buttonKeyMap,
+    required this.onChanged,
+  });
+
+  final Map<int, String> buttonKeyMap;
+  final void Function(int keyCode, String? keyName) onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    const labelStyle = TextStyle(
+      color: Colors.white38,
+      fontSize: 11,
+      fontWeight: FontWeight.bold,
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Button → Keyboard key', style: labelStyle),
+        const SizedBox(height: 6),
+        _ButtonKeyRow(
+          buttonLabel: 'Start button',
+          keyCode: _kcButtonStart,
+          currentKeyName: buttonKeyMap[_kcButtonStart],
+          onChanged: onChanged,
+        ),
+        const SizedBox(height: 4),
+        _ButtonKeyRow(
+          buttonLabel: 'Select button',
+          keyCode: _kcButtonSelect,
+          currentKeyName: buttonKeyMap[_kcButtonSelect],
+          onChanged: onChanged,
+        ),
+      ],
+    );
+  }
+}
+
+class _ButtonKeyRow extends StatelessWidget {
+  const _ButtonKeyRow({
+    required this.buttonLabel,
+    required this.keyCode,
+    required this.currentKeyName,
+    required this.onChanged,
+  });
+
+  final String buttonLabel;
+  final int keyCode;
+  final String? currentKeyName;
+  final void Function(int keyCode, String? keyName) onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            buttonLabel,
+            style: const TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+        ),
+        const SizedBox(width: 8),
+        DropdownButton<String?>(
+          value: currentKeyName,
+          dropdownColor: const Color(0xFF1A1A2E),
+          style: const TextStyle(color: Colors.white, fontSize: 13),
+          underline: const SizedBox.shrink(),
+          items:
+              _keyOptions.map((opt) {
+                return DropdownMenuItem<String?>(
+                  value: opt.keyName,
+                  child: Text(opt.label),
+                );
+              }).toList(),
+          onChanged: (value) => onChanged(keyCode, value),
         ),
       ],
     );

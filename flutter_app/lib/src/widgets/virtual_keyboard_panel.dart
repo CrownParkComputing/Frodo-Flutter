@@ -184,7 +184,7 @@ class VirtualKeyboardPanel extends StatelessWidget {
                 _tapKey(bridge, keys[i].keyName!);
               },
             ),
-            if (i != keys.length - 1) const SizedBox(width: 3),
+            if (i != keys.length - 1) const SizedBox(width: 4),
           ],
         ],
       ),
@@ -230,14 +230,14 @@ class _VirtualKeyButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: width,
-      height: 26,
+      height: 36,
       child: ElevatedButton(
         style: ElevatedButton.styleFrom(
-          minimumSize: Size(width, 26),
+          minimumSize: Size(width, 36),
           padding: const EdgeInsets.symmetric(horizontal: 2),
-          textStyle: const TextStyle(fontSize: 8, fontWeight: FontWeight.w600),
+          textStyle: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
+          visualDensity: const VisualDensity(horizontal: -3, vertical: -2),
         ),
         onPressed: onPressed,
         child: Text(label),

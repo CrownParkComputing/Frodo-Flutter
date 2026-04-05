@@ -18,9 +18,14 @@ enum DisplayAspectMode {
 
 /// Widget that renders the C64 framebuffer at ~50 Hz.
 class EmulatorDisplay extends StatefulWidget {
-  const EmulatorDisplay({super.key, required this.aspectMode});
+  const EmulatorDisplay({
+    super.key,
+    required this.aspectMode,
+    this.crtMode = false,
+  });
 
   final DisplayAspectMode aspectMode;
+  final bool crtMode;
 
   @override
   State<EmulatorDisplay> createState() => _EmulatorDisplayState();
@@ -108,7 +113,10 @@ class _EmulatorDisplayState extends State<EmulatorDisplay> {
               child:
                   _frame != null
                       ? CustomPaint(
-                        painter: _FramePainter(_frame!),
+                        painter: _FramePainter(
+                          _frame!,
+                          crtMode: widget.crtMode,
+                        ),
                         size: Size.infinite,
                       )
                       : const ColoredBox(
@@ -140,8 +148,12 @@ class _EmulatorDisplayState extends State<EmulatorDisplay> {
 }
 
 class _FramePainter extends CustomPainter {
-  _FramePainter(this.image);
+  _FramePainter(this.image, {this.crtMode = false});
   final ui.Image image;
+  final bool crtMode;
+
+  static const double _vignetteInnerStop = 0.55;
+  static const int _vignetteOpacity = 140;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -158,8 +170,32 @@ class _FramePainter extends CustomPainter {
       dst,
       Paint()..filterQuality = FilterQuality.low,
     );
+
+    if (crtMode) {
+      // Scanlines: semi-transparent dark stripe every 2 pixels
+      final scanPaint = Paint()..color = const Color(0x44000000);
+      for (double y = 0; y < size.height; y += 2) {
+        canvas.drawRect(Rect.fromLTWH(0, y, size.width, 1), scanPaint);
+      }
+
+      // Vignette: dark radial gradient from edges toward center
+      final vignetteRect = Rect.fromLTWH(0, 0, size.width, size.height);
+      final vignettePaint =
+          Paint()
+            ..shader = RadialGradient(
+              center: Alignment.center,
+              radius: 1.0,
+              colors: [
+                Colors.transparent,
+                Colors.black.withAlpha(_vignetteOpacity),
+              ],
+              stops: const [_vignetteInnerStop, 1.0],
+            ).createShader(vignetteRect);
+      canvas.drawRect(vignetteRect, vignettePaint);
+    }
   }
 
   @override
-  bool shouldRepaint(_FramePainter old) => true;
+  bool shouldRepaint(_FramePainter old) =>
+      old.image != image || old.crtMode != crtMode;
 }

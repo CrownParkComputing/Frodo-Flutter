@@ -16,6 +16,8 @@ class EmulatorToolbar extends StatelessWidget {
     required this.keyboardVisible,
     required this.aspectMode,
     required this.onAspectModeChanged,
+    required this.crtMode,
+    required this.onToggleCrt,
   });
 
   final VoidCallback onLoadFile;
@@ -23,6 +25,8 @@ class EmulatorToolbar extends StatelessWidget {
   final bool keyboardVisible;
   final DisplayAspectMode aspectMode;
   final ValueChanged<DisplayAspectMode> onAspectModeChanged;
+  final bool crtMode;
+  final VoidCallback onToggleCrt;
 
   @override
   Widget build(BuildContext context) {
@@ -80,6 +84,17 @@ class EmulatorToolbar extends StatelessWidget {
                       ? 'Hide Virtual Keyboard'
                       : 'Show Virtual Keyboard',
               onPressed: onToggleKeyboard,
+            ),
+            const _Separator(),
+
+            // ---- CRT mode toggle ----
+            IconButton(
+              icon: Icon(
+                Icons.tv,
+                color: crtMode ? Colors.cyanAccent : Colors.white70,
+              ),
+              tooltip: crtMode ? 'CRT Mode: On' : 'CRT Mode: Off',
+              onPressed: onToggleCrt,
             ),
             const _Separator(),
 
@@ -166,7 +181,11 @@ class EmulatorToolbar extends StatelessWidget {
 
 /// Tape deck controls bar with cassette tape operation buttons.
 class TapeDeckBar extends StatefulWidget {
-  const TapeDeckBar({super.key});
+  const TapeDeckBar({super.key, required this.onHide});
+
+  /// Called when the tape has been inactive for 2 seconds, requesting the
+  /// parent to hide this widget.
+  final VoidCallback onHide;
 
   @override
   State<TapeDeckBar> createState() => _TapeDeckBarState();
@@ -177,6 +196,7 @@ class _TapeDeckBarState extends State<TapeDeckBar> {
   bool _blinkOn = false;
   bool _active = false;
   Timer? _blinkTimer;
+  Timer? _inactivityTimer;
 
   @override
   void initState() {
@@ -196,10 +216,20 @@ class _TapeDeckBarState extends State<TapeDeckBar> {
         _active = false;
         _blinkOn = false;
       });
+      // Start the 2-second inactivity timer to auto-hide
+      _inactivityTimer?.cancel();
+      _inactivityTimer = Timer(const Duration(seconds: 2), () {
+        if (mounted) {
+          widget.onHide();
+        }
+      });
       return;
     }
 
     if (active) {
+      // Tape became active again — cancel any pending hide
+      _inactivityTimer?.cancel();
+      _inactivityTimer = null;
       setState(() {
         _active = true;
         _blinkOn = !_blinkOn;
@@ -210,6 +240,7 @@ class _TapeDeckBarState extends State<TapeDeckBar> {
   @override
   void dispose() {
     _blinkTimer?.cancel();
+    _inactivityTimer?.cancel();
     super.dispose();
   }
 

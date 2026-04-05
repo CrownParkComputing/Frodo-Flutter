@@ -63,6 +63,8 @@ class _EmulatorPageState extends State<EmulatorPage>
   DisplayAspectMode _aspectMode = DisplayAspectMode.standard4x3;
   bool _toolbarVisible = true;
   bool _keyboardVisible = false;
+  bool _crtMode = false;
+  bool _tapVisible = false;
   Timer? _hideToolbarTimer;
 
   @override
@@ -601,6 +603,11 @@ class _EmulatorPageState extends State<EmulatorPage>
       _bridge!.startCurrentMedia();
     }
 
+    // Show the tape deck bar only when a .tap file is loaded
+    setState(() {
+      _tapVisible = lower.endsWith('.tap');
+    });
+
     if (mounted) {
       final fileName = path.split(Platform.pathSeparator).last;
       ScaffoldMessenger.of(
@@ -650,7 +657,12 @@ class _EmulatorPageState extends State<EmulatorPage>
         onTap: _showToolbar,
         child: Stack(
           children: [
-            Positioned.fill(child: EmulatorDisplay(aspectMode: _aspectMode)),
+            Positioned.fill(
+              child: EmulatorDisplay(
+                aspectMode: _aspectMode,
+                crtMode: _crtMode,
+              ),
+            ),
             if (_toolbarVisible)
               SafeArea(
                 child: Align(
@@ -664,16 +676,27 @@ class _EmulatorPageState extends State<EmulatorPage>
                       setState(() => _aspectMode = mode);
                       _startHideToolbarTimer();
                     },
+                    crtMode: _crtMode,
+                    onToggleCrt: () {
+                      setState(() => _crtMode = !_crtMode);
+                      _startHideToolbarTimer();
+                    },
                   ),
                 ),
               ),
-            if (_toolbarVisible && !_keyboardVisible)
+            if (_toolbarVisible && !_keyboardVisible && _tapVisible)
               SafeArea(
                 child: Align(
                   alignment: Alignment.bottomCenter,
                   child: Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: TapeDeckBar(),
+                    child: TapeDeckBar(
+                      onHide: () {
+                        if (mounted) {
+                          setState(() => _tapVisible = false);
+                        }
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -875,7 +898,7 @@ class _VirtualKeyboardPanel extends StatelessWidget {
                 _tapKey(bridge, keys[i].keyName!);
               },
             ),
-            if (i != keys.length - 1) const SizedBox(width: 3),
+            if (i != keys.length - 1) const SizedBox(width: 4),
           ],
         ],
       ),
@@ -921,14 +944,14 @@ class _VirtualKeyButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: width,
-      height: 26,
+      height: 36,
       child: ElevatedButton(
         style: ElevatedButton.styleFrom(
-          minimumSize: Size(width, 26),
+          minimumSize: Size(width, 36),
           padding: const EdgeInsets.symmetric(horizontal: 2),
-          textStyle: const TextStyle(fontSize: 8, fontWeight: FontWeight.w600),
+          textStyle: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          visualDensity: const VisualDensity(horizontal: -3, vertical: -3),
+          visualDensity: const VisualDensity(horizontal: -3, vertical: -2),
         ),
         onPressed: onPressed,
         child: Text(label),
