@@ -5,6 +5,7 @@
 #include "frodo_ffi.h"
 
 #include "C64.h"
+#include "CIA.h"
 #include "SID.h"
 #include "1541t64.h"
 #include "Cartridge.h"
@@ -34,6 +35,10 @@ namespace {
     std::thread g_emu_thread;
     std::atomic<bool> g_emu_running{false};
 
+    // Software joystick override bits per port (CIA format: 0=active, 1=inactive).
+    // Written by frodo_joystick_set_override; applied directly to CIA registers.
+    uint8_t g_joystick_override[2] = {0xff, 0xff};
+
     bool ready()
     {
         return TheC64 != nullptr && TheC64->TheDisplay != nullptr;
@@ -43,6 +48,60 @@ namespace {
     {
         fs::path p(path);
         return p.has_filename() ? p.filename().string() : path;
+    }
+
+    // Push a synthetic SDL keyboard event so Display::PollKeyboard picks it up.
+    void inject_key(SDL_Scancode sc, bool key_up)
+    {
+        SDL_Event ev;
+        SDL_memset(&ev, 0, sizeof(ev));
+        ev.type = key_up ? SDL_KEYUP : SDL_KEYDOWN;
+        ev.key.state = key_up ? SDL_RELEASED : SDL_PRESSED;
+        ev.key.keysym.scancode = sc;
+        SDL_PushEvent(&ev);
+    }
+
+    // Build ARGB32 palette from the current Prefs palette setting.
+    // Mirrors the logic in Display::init_colors().
+    static const uint8_t kPeptoR[16] = {
+        0x00, 0xff, 0x86, 0x4c, 0x88, 0x35, 0x20, 0xcf,
+        0x88, 0x40, 0xcb, 0x34, 0x68, 0x8b, 0x68, 0xa1
+    };
+    static const uint8_t kPeptoG[16] = {
+        0x00, 0xff, 0x19, 0xc1, 0x17, 0xac, 0x07, 0xf2,
+        0x3e, 0x2a, 0x55, 0x34, 0x68, 0xff, 0x4a, 0xa1
+    };
+    static const uint8_t kPeptoB[16] = {
+        0x00, 0xff, 0x01, 0xe3, 0xbd, 0x0a, 0xc0, 0x2d,
+        0x00, 0x00, 0x37, 0x34, 0x68, 0x59, 0xff, 0xa1
+    };
+    static const uint8_t kColodoreR[16] = {
+        0x00, 0xff, 0x81, 0x75, 0x8e, 0x56, 0x2e, 0xed,
+        0x8e, 0x55, 0xc4, 0x4a, 0x7b, 0xa9, 0x70, 0xb2
+    };
+    static const uint8_t kColodoreG[16] = {
+        0x00, 0xff, 0x33, 0xce, 0x3c, 0xac, 0x2c, 0xf1,
+        0x50, 0x38, 0x6c, 0x4a, 0x7b, 0xff, 0x6d, 0xb2
+    };
+    static const uint8_t kColodoreB[16] = {
+        0x00, 0xff, 0x38, 0xc8, 0x97, 0x4d, 0x9b, 0x71,
+        0x29, 0x00, 0x71, 0x4a, 0x7b, 0x9f, 0xeb, 0xb2
+    };
+
+    void build_argb_palette(uint32_t pal[16])
+    {
+        const uint8_t * r;
+        const uint8_t * g;
+        const uint8_t * b;
+        if (ThePrefs.Palette == PALETTE_COLODORE) {
+            r = kColodoreR; g = kColodoreG; b = kColodoreB;
+        } else {
+            r = kPeptoR;    g = kPeptoG;    b = kPeptoB;
+        }
+        for (unsigned i = 0; i < 16; ++i)
+            pal[i] = (static_cast<uint32_t>(r[i]) << 16)
+                   | (static_cast<uint32_t>(g[i]) <<  8)
+                   |  static_cast<uint32_t>(b[i]);
     }
 
     bool extract_first_archive_entry(const std::string & path)
@@ -439,8 +498,11 @@ int frodo_swap_drives(void)
 
 void frodo_queue_disk_autoload(void)
 {
-    if (TheC64 && !ThePrefs.DrivePath[0].empty())
-        TheC64->QueueDiskAutoLoad();
+    if (!TheC64 || ThePrefs.DrivePath[0].empty()) return;
+    auto prefs = std::make_unique<Prefs>(ThePrefs);
+    prefs->AutoStart = true;
+    TheC64->NewPrefs(prefs.get());
+    ThePrefs = *prefs;
 }
 
 void frodo_mount_tape(const char * path)
@@ -484,7 +546,7 @@ int frodo_tape_drive_state(void)
 
 void frodo_tape_set_speed(int multiplier)
 {
-    if (TheC64) TheC64->SetTapeSpeedMultiplier(multiplier);
+    (void)multiplier;   // tape speed control requires Frodo4 submodule extension
 }
 
 void frodo_insert_cartridge(const char * path)
@@ -496,14 +558,14 @@ void frodo_key_down(const char * name)
 {
     SDL_Scancode sc = sc_from_name(name);
     if (sc != SDL_SCANCODE_UNKNOWN && TheC64)
-        TheC64->InjectKey(sc, false);
+        inject_key(sc, false);
 }
 
 void frodo_key_up(const char * name)
 {
     SDL_Scancode sc = sc_from_name(name);
     if (sc != SDL_SCANCODE_UNKNOWN && TheC64)
-        TheC64->InjectKey(sc, true);
+        inject_key(sc, true);
 }
 
 void frodo_key_combo(const char * mod_name, const char * key_name)
@@ -511,11 +573,11 @@ void frodo_key_combo(const char * mod_name, const char * key_name)
     SDL_Scancode mod = sc_from_name(mod_name);
     SDL_Scancode key = sc_from_name(key_name);
     if (mod == SDL_SCANCODE_UNKNOWN || key == SDL_SCANCODE_UNKNOWN || !TheC64) return;
-    TheC64->InjectKey(mod, false);
+    inject_key(mod, false);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    TheC64->InjectKey(key, false);
-    TheC64->InjectKey(key, true);
-    TheC64->InjectKey(mod, true);
+    inject_key(key, false);
+    inject_key(key, true);
+    inject_key(mod, true);
 }
 
 void frodo_set_joystick_ports(int port1, int port2)
@@ -539,13 +601,25 @@ void frodo_toggle_joystick_swap(void)
 
 void frodo_joystick_set_override(int port, int bits)
 {
-    if (TheC64) TheC64->SetJoystickOverride(port, (uint8_t)bits);
+    if (port < 0 || port >= 2) return;
+    g_joystick_override[port] = static_cast<uint8_t>(bits);
+    if (!TheC64 || !TheC64->TheCIA1) return;
+    // Apply directly to CIA joystick registers (CIA format: 0=active)
+    if (port == 0)
+        TheC64->TheCIA1->Joystick1 &= g_joystick_override[0];
+    else
+        TheC64->TheCIA1->Joystick2 &= g_joystick_override[1];
 }
 
 void frodo_capture_frame(uint32_t * out_argb)
 {
     if (!ready() || !out_argb) return;
-    TheC64->TheDisplay->CopyARGB(out_argb);
+    const uint8_t * src = TheC64->TheDisplay->BitmapBase();
+    uint32_t pal[16];
+    build_argb_palette(pal);
+    const unsigned n = DISPLAY_X * DISPLAY_Y;
+    for (unsigned i = 0; i < n; ++i)
+        out_argb[i] = pal[src[i] & 0x0f];
 }
 
 void frodo_pause_audio(void)
@@ -577,8 +651,11 @@ void frodo_start_current_media(void)
 
 void frodo_queue_tape_autoload(void)
 {
-    if (TheC64 && !ThePrefs.TapePath.empty())
-        TheC64->QueueTapeAutoLoad();
+    if (!TheC64 || ThePrefs.TapePath.empty()) return;
+    auto prefs = std::make_unique<Prefs>(ThePrefs);
+    prefs->AutoStart = true;
+    TheC64->NewPrefs(prefs.get());
+    ThePrefs = *prefs;
 }
 
 } /* extern "C" */

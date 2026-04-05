@@ -9,8 +9,9 @@ plugins {
 // Rust / cargo-ndk integration
 // ---------------------------------------------------------------------------
 val rustDir = file("${rootProject.projectDir}/../rust/frodo_bridge")
+val isWindows = System.getProperty("os.name").lowercase().contains("windows")
 val cargoExe = System.getenv("CARGO")
-    ?: "${System.getenv("USERPROFILE")}\\.cargo\\bin\\cargo.exe"
+    ?: if (isWindows) "${System.getenv("USERPROFILE")}\\.cargo\\bin\\cargo.exe" else "cargo"
 val enableRustNative = providers.gradleProperty("enableRustNative").orElse("true").get().equals("true", ignoreCase = true)
 val hostSdl2Dir = file("${rootProject.projectDir}/../../android/app/build/intermediates/merged_native_libs/debug/mergeDebugNativeLibs/out/lib/arm64-v8a")
 val hostSdl2So = file("${hostSdl2Dir}/libSDL2.so")
@@ -19,7 +20,12 @@ val appSdl2So = file("${appSdl2Dir}/libSDL2.so")
 val androidSdkRoot = System.getenv("ANDROID_SDK_ROOT")
     ?: System.getenv("ANDROID_HOME")
     ?: "${System.getenv("LOCALAPPDATA")}\\Android\\Sdk"
-val ndkLibCppSharedArm64 = file("${androidSdkRoot}/ndk/29.0.14206865/toolchains/llvm/prebuilt/windows-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so")
+val ndkHostTag = when {
+    isWindows -> "windows-x86_64"
+    System.getProperty("os.name").lowercase().contains("mac") -> "darwin-x86_64"
+    else -> "linux-x86_64"
+}
+val ndkLibCppSharedArm64 = file("${androidSdkRoot}/ndk/29.0.14206865/toolchains/llvm/prebuilt/${ndkHostTag}/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so")
 
 fun resolveSdl2ForLink(): File {
     return if (hostSdl2So.exists()) {
